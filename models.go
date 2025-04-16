@@ -1,0 +1,239 @@
+package suresql
+
+import (
+	"time"
+
+	orm "github.com/medatechnology/simpleorm"
+
+	"github.com/medatechnology/goutil/medaerror"
+	"github.com/medatechnology/goutil/medattlmap"
+)
+
+const (
+	// Default Token settings
+	DEFAULT_TOKEN_EXPIRES_MINUTES   = 24 * 60 * time.Minute // every 24 hours
+	DEFAULT_REFRESH_EXPIRES_MINUTES = 48 * 60 * time.Minute // every 48 hours
+	DEFAULT_TTL_TICKER_MINUTES      = 5 * time.Minute       // every [value] minute, check for expiration for ttl
+
+	// Default HTTP timeouts
+	// DEFAULT_CONNECTION_TIMEOUT            = 60 * time.Second
+	DEFAULT_TIMEOUT       = 60 * time.Second
+	DEFAULT_RETRY_TIMEOUT = 60 * time.Second
+	DEFAULT_RETRY         = 3
+
+	// Default Pool settings
+	DEFAULT_MAX_POOL     = 25
+	DEFAULT_POOL_ENABLED = true
+)
+
+// GLOBAL VAR
+var (
+	CurrentNode       SureSQLNode
+	ReloadEnvironment bool = false
+
+	// Standard error, cannot use constant on struct
+	// Should be constant instead?
+	ErrNoDBConnection       medaerror.MedaError = medaerror.MedaError{Message: "no db connection"}
+	ErrDBInitializedAlready medaerror.MedaError = medaerror.MedaError{Message: "DB already initialized"}
+	// ErrTokenNotFound  medaerror.MedaError = medaerror.MedaError{Message: "token not found"}
+	// ErrInvalidRequest medaerror.MedaError = medaerror.MedaError{Message: "invalid request param or body"}
+	// ErrWrongPassword  medaerror.MedaError = medaerror.MedaError{Message: "password missmatch"}
+	SchemaTable string = ""
+	// EmptyConnection SureSQLDB = SureSQLDB{}
+)
+
+type SureSQLDB orm.Database
+
+// StandardResponse is a structured response format for all API responses
+type StandardResponse struct {
+	Status  int         `json:"status"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data"`
+}
+
+// ===== Used in handle_SQL endpoints
+// SQLRequest represents the request structure for executing SQL commands: UPDATE, DELETE, DROP, INSERT, SELECT
+type SQLRequest struct {
+	Statements []string                `json:"statements,omitempty"` // Raw SQL statements to execute
+	ParamSQL   []orm.ParametereizedSQL `json:"param_sql,omitempty"`  // Parameterized SQL statements to execute
+	SingleRow  bool                    `json:"single_row,omitempty"` // If true, return only first row
+}
+
+// SQLResponse represents the response structure for SQL execution results
+type SQLResponse struct {
+	Results       []orm.BasicSQLResult `json:"results"`        // Results for each executed statement
+	ExecutionTime float64              `json:"execution_time"` // Total execution time in milliseconds
+	RowsAffected  int                  `json:"rows_affected"`  // Total number of rows affected
+}
+
+// ===== Used in handle_Query endpoints
+// QueryRequest represents the simplified request structure for executing SELECT queries
+type QueryRequest struct {
+	Table     string         `json:"table"`                // Table name for queries
+	Condition *orm.Condition `json:"condition,omitempty"`  // Optional condition for filtering
+	SingleRow bool           `json:"single_row,omitempty"` // If true, return only first row
+}
+
+// QueryResponse represents the response structure for query results
+type QueryResponse struct {
+	Records       []orm.DBRecord `json:"records"` // Always returns as array, even for single record
+	ExecutionTime float64        `json:"execution_time"`
+	Count         int            `json:"count"`
+}
+
+// QueryRequest represents the simplified request structure for executing SELECT queries
+// type QueryRequestSQL struct {
+// 	Statements []string                `json:"statements,omitempty"` // Raw SQL statements to execute
+// 	ParamSQL   []orm.ParametereizedSQL `json:"param_sql,omitempty"`  // Parameterized SQL statements to execute
+// 	SingleRow  bool                    `json:"single_row,omitempty"` // If true, return only first row
+// }
+
+// QueryResponse represents the response structure for query results
+type QueryResponseSQL []QueryResponse
+
+// type QueryResponseSQL struct {
+// 	MultipleRecords []orm.DBRecords `json:"multiple_records"` // Always returns as array, even for single record
+// 	ExecutionTime   float64         `json:"execution_time"`
+// 	Counts          []int           `json:"counts"`
+// }
+
+// ===== Used in handle_Insert endpoints
+// InsertRequest represents the request structure for inserting records
+type InsertRequest struct {
+	Records   []orm.DBRecord `json:"records"`              // Records to insert
+	Queue     bool           `json:"queue,omitempty"`      // Whether to use queue operations (optional)
+	SameTable bool           `json:"same_table,omitempty"` // Indicates if all records belong to the same table
+}
+
+// Originally this was saved in DB as table, but maybe Redis or some auto-expire system is better
+type TokenTable struct {
+	ID               string    `json:"id,omitempty"                  db:"id"`
+	UserID           string    `json:"user_id,omitempty"             db:"user_id"`
+	Token            string    `json:"token,omitempty"               db:"token"`
+	Refresh          string    `json:"refresh_token,omitempty"       db:"refresh_token"`
+	TokenExpiresAt   time.Time `json:"token_expired_at,omitempty"    db:"token_expired_at"`
+	RefreshExpiresAt time.Time `json:"refresh_expired_at,omitempty"  db:"refresh_expired_at"`
+	CreatedAt        time.Time `json:"created_at,omitempty"          db:"created_at"`
+	// additional members
+	UserName string
+}
+
+func (t TokenTable) TableName() string {
+	return "_tokens"
+}
+
+// This is the settings for the current node, it inserted inside the table!
+type SettingsTable struct {
+	ID               int    `json:"id,omitempty"                  db:"id"`
+	Label            string `json:"label,omitempty"               db:"label"`
+	IP               string `json:"ip,omitempty"                  db:"ip"`
+	Host             string `json:"host,omitempty"                db:"host"`
+	Port             string `json:"port,omitempty"                db:"port"`
+	SSL              bool   `json:"ssl,omitempty"                 db:"ssl"`
+	DBMS             string `json:"dbms,omitempty"                db:"dbms"`
+	Mode             string `json:"mode,omitempty"                db:"mode"`
+	Nodes            int    `json:"nodes,omitempty"               db:"nodes"`       // total number of nodes in the cluster
+	NodeNumber       int    `json:"node_number,omitempty"         db:"node_number"` // this is node number .. X
+	NodeID           int    `json:"node_id,omitempty"         db:"node_id"`         // this is node ID from rqlite cluster
+	IsInitDone       bool   `json:"is_init_done,omitempty"        db:"is_init_done"`
+	IsSplitWrite     bool   `json:"is_split_write,omitempty"      db:"is_split_write"`
+	EncryptionMethod string `json:"encryption_method,omitempty"   db:"encryption_method"`
+}
+
+func (s SettingsTable) TableName() string {
+	return "_settings"
+}
+
+// This is how we store the config for SureSQL. It can contains the peers information, timeouts etc (depends on the category)
+// Ie: category: token , rows are:
+// ConfigKey: token_exp , IntValue: 20 (in minutes)
+// ConfigKey: refresh_exp , IntValue: 200 (in minutes)
+// ConfigKey: token_ttl , IntValue: 5 (in minutes)
+type ConfigTable struct {
+	ID         int     `json:"id,omitempty"                  db:"id"`
+	Category   string  `json:"category,omitempty"            db:"category"`
+	DataType   string  `json:"data_type,omitempty"           db:"data_type"`
+	ConfigKey  string  `json:"config_key,omitempty"          db:"config_key"`
+	TextValue  string  `json:"text_value,omitempty"          db:"text_value"`
+	FloatValue float64 `json:"float_value,omitempty"         db:"float_value"`
+	IntValue   int     `json:"int_value,omitempty"           db:"int_value"`
+}
+
+func (c ConfigTable) TableName() string {
+	return "_configs"
+}
+
+// GetValue returns the value of the config entry as an interface{} based on data_type
+func (c ConfigTable) GetValue() interface{} {
+	switch c.DataType {
+	case "text", "string":
+		return c.TextValue
+	case "float", "double":
+		return c.FloatValue
+	case "int", "integer":
+		return c.IntValue
+	case "bool", "boolean":
+		// Convert stored text value to boolean
+		if c.TextValue == "true" || c.TextValue == "1" || c.TextValue == "yes" ||
+			c.IntValue == 1 {
+			return true
+		}
+		return false
+	default:
+		// Default to text value
+		return c.TextValue
+	}
+}
+
+// Struct to use as per-node status, information mostly from SettingsTable, but this is used for response
+// type StatusStruct struct {
+// 	SettingsTable
+// 	URL        string        `json:"url,omitempty"          db:"url"`     // URL (host + port)
+// 	Version    string        `json:"version,omitempty"      db:"version"` // version of the DMBS
+// 	StartTime  time.Time     `json:"start_time,omitempty"   db:"start_time"`
+// 	Uptime     time.Duration `json:"uptime,omitempty"       db:"uptime"`
+// 	DirSize    int64         `json:"dir_size,omitempty"     db:"dir_size"`
+// 	DBSize     int64         `json:"db_size,omitempty"      db:"db_size"`
+// 	NodeID     string        `json:"node_id,omitempty"      db:"node_id"` // DBMS node ID, was rqlite node_id from status
+// 	IsLeader   bool          `json:"is_leader,omitempty"    db:"is_leader"`
+// 	Leader     string        `json:"leader,omitempty"       db:"leader"`
+// 	LastBackup time.Time     `json:"last_backup,omitempty"  db:"last_backup"`
+// }
+
+// // Output: Label: Host:Port [(Leader)|Empty] rw (1/3)
+// func (s StatusStruct) String() string {
+// 	leader := ""
+// 	if s.IsLeader {
+// 		leader = "(Leader)"
+// 	}
+// 	if s.Port != "" {
+// 		s.Port = ":" + s.Port
+// 	}
+// 	return fmt.Sprintf("%s: %s%s %v %s (%d/%d)", s.Label, s.Host, s.Port, leader, s.Mode, s.NodeNumber, s.Nodes)
+// }
+
+// // Status for the node, contains the peers if applicable, mostly from SettingsTable but used for response.
+// type NodeStatusStruct struct {
+// 	StatusStruct
+// 	Peers []StatusStruct // all peers including the leader
+// }
+
+// This is the whole SureSQL Node is all about
+// NOTE: do we need IP? because we can put IP address in the hostname field if we
+// are connecting based on IP.
+type SureSQLNode struct {
+	InternalConfig     SureSQLConfig        `json:"internal_config,omitempty"      db:"internal_config"`
+	IP                 string               `json:"ip,omitempty"                   db:"ip"`                  // IP for this sureSQL node
+	InternalAPI        string               `json:"internal_api,omitempty"         db:"internal_api"`        // This is for the node internal API (CRUD users)
+	Settings           SettingsTable        `json:"settings,omitempty"             db:"settings"`            // Settings for this node, from DB table
+	DBConfigs          ConfigCategory       `json:"configs,omitempty"              db:"configs"`             // Configs for this node, from DB table
+	Status             orm.NodeStatusStruct `json:"status,omitempty"               db:"status"`              // Status for SureSQL DB Node that is standard from orm
+	InternalConnection SureSQLDB            `json:"internal_connection,omitempty"  db:"internal_connection"` // master connection to InternalDB
+	DBConnections      *medattlmap.TTLMap   `json:"db_connections,omitempty"       db:"db_connections"`      // another connection based on Token
+	MaxPool            int                  `json:"max_pool,omitempty"             db:"max_pool"`            // total nodes for this project
+	IsPoolEnabled      bool                 `json:"is_poolenabled,omitempty"       db:"is_poolenabled"`      // if this DB already initialized
+	IsEncrypted        bool                 `json:"is_encrypted,omitempty"         db:"is_encrypted"`        // none/AES/Bcrypt (already in Settings)
+	TokenExp           time.Duration        `json:"token_exp,omitempty"            db:"token_exp"`           // token expiration in minutes
+	RefreshExp         time.Duration        `json:"refresh_exp,omitempty"          db:"refresh_exp"`         // refresh token expiration in minutes
+	TTLTicker          time.Duration        `json:"ttl_ticker,omitempty"           db:"ttl_ticker"`          // ttl ticker to check expiration in minutes
+}
