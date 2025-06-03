@@ -25,7 +25,7 @@ const (
 // - logging (optional) : can be console/log-files OR insert into DB
 // - response back to caller
 type HandlerState struct {
-	Context             simplehttp.MedaContext
+	Context             simplehttp.Context
 	Header              *simplehttp.RequestHeader // Please make sure that the HeaderParser middleware is used! If not it's nil.
 	Label               string                    // This is used for logging, it's like the title/function name
 	User                string                    // Mostly user that call make the request, could be also user that connect to DB?
@@ -48,7 +48,7 @@ type HandlerState struct {
 
 // This is the configuration for logging for the project
 // This is state status for basic handlers that do not require status
-func NewHandlerState(ctx simplehttp.MedaContext, user, label, table string) HandlerState {
+func NewHandlerState(ctx simplehttp.Context, user, label, table string) HandlerState {
 	if user == "" {
 		user = suresql.CurrentNode.InternalConfig.Username
 	}
@@ -68,7 +68,7 @@ func NewHandlerState(ctx simplehttp.MedaContext, user, label, table string) Hand
 }
 
 // This is the state status for handlers that requires token.
-func NewHandlerTokenState(ctx simplehttp.MedaContext, label, table string) HandlerState {
+func NewHandlerTokenState(ctx simplehttp.Context, label, table string) HandlerState {
 	// This is the default setting, make sure the HeaderParser middleware is in used!
 	state := HandlerState{
 		Context:             ctx,
@@ -91,7 +91,7 @@ func NewHandlerTokenState(ctx simplehttp.MedaContext, label, table string) Handl
 }
 
 // This is the configuration for logging for the middleware
-func NewMiddlewareState(ctx simplehttp.MedaContext, name string) HandlerState {
+func NewMiddlewareState(ctx simplehttp.Context, name string) HandlerState {
 	// This is the default setting, make sure the HeaderParser middleware is in used!
 	return HandlerState{
 		Context:             ctx,
@@ -155,7 +155,7 @@ func (h *HandlerState) OnlyLog(message string, data interface{}, restartTimer bo
 		ClientIP:      h.Header.RemoteIP, // NOTE: is this accurate??
 		ClientBrowser: h.Header.UserAgent,
 		ClientDevice:  h.Header.Device,
-		NodeNumber:    suresql.CurrentNode.Settings.NodeNumber,
+		NodeNumber:    suresql.CurrentNode.Config.NodeNumber,
 		// Error:         h.ErrorMessage,
 		// RawQuery: ,
 	}

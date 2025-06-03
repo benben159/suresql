@@ -1,0 +1,328 @@
+#!/bin/bash
+. ./.env.simplehttp
+. ./.env.dev
+
+# Configuration
+HOST="http://${SURESQL_HOST}:${SURESQL_PORT}"  # Change this to your server address
+API_KEY=${SURESQL_API_KEY}        # Replace with your API key
+CLIENT_ID=${SURESQL_CLIENT_ID}    # Replace with your client ID
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}SureSQL API Test Script${NC}"
+echo -e "${BLUE}====================${NC}"
+
+# Step 1: Connect and get a token
+echo -e "\n${BLUE}Step 1: Connecting to the database to get token...${NC}"
+CONNECT_RESPONSE=$(curl -s -X POST "${HOST}/db/connect" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "admin123"}')
+
+# Extract token and refresh token using grep and sed
+TOKEN=$(echo $CONNECT_RESPONSE | grep -o '"token":"[^"]*' | sed 's/"token":"//')
+REFRESH_TOKEN=$(echo $CONNECT_RESPONSE | grep -o '"refresh_token":"[^"]*' | sed 's/"refresh_token":"//')
+
+if [ -z "$TOKEN" ]; then
+  echo -e "${RED}Failed to get token. Response:${NC}"
+  echo $CONNECT_RESPONSE
+  exit 1
+else
+  echo -e "${GREEN}Successfully obtained token.${NC}"
+  echo "Token: ${TOKEN:0:10}...${TOKEN: -5}"
+fi
+
+# Step 2: Test Database Status
+echo -e "\n${BLUE}Step 2: Testing database status...${NC}"
+STATUS_RESPONSE=$(curl -s -X GET "${HOST}/db/api/status" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}")
+
+echo $STATUS_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully retrieved database status.${NC}"
+else
+  echo -e "${RED}Failed to get database status. Response:${NC}"
+  echo $STATUS_RESPONSE
+fi
+
+# Step 3: Test SQL Query - Create a test table
+echo -e "\n${BLUE}Step 3: Testing SQL execution - Create a test table...${NC}"
+CREATE_TABLE_RESPONSE=$(curl -s -X POST "${HOST}/db/api/sql" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      "CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)"
+      ]
+  }')
+
+echo $CREATE_TABLE_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully created test table.${NC}"
+else
+  echo -e "${RED}Failed to create test table. Response:${NC}"
+  echo $CREATE_TABLE_RESPONSE
+fi
+
+# Step 4: Test SQL Query - Insert data
+echo -e "\n${BLUE}Step 4: Testing SQL execution - Insert data...${NC}"
+INSERT_RESPONSE=$(curl -s -X POST "${HOST}/db/api/sql" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      "INSERT INTO test_table (id, name, value) VALUES (1, '\''Item 1'\'', 100)",
+      "INSERT INTO test_table (id, name, value) VALUES (2, '\''Item 2'\'', 200)",
+      "INSERT INTO test_table (id, name, value) VALUES (3, '\''Item 3'\'', 300)"
+    ]
+  }')
+
+echo $INSERT_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully inserted test data.${NC}"
+else
+  echo -e "${RED}Failed to insert test data. Response:${NC}"
+  echo $INSERT_RESPONSE
+fi
+
+# Step 5: Test SQL Query with parameters
+echo -e "\n${BLUE}Step 5: Testing SQL execution with parameters...${NC}"
+PARAM_SQL_RESPONSE=$(curl -s -X POST "${HOST}/db/api/sql" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "param_sql": [ 
+      {
+        "query": "INSERT INTO test_table (id, name, value) VALUES (?, ?, ?)",
+        "values": [4, "Parameterized Item", 400]
+      }
+    ]
+  }')
+
+echo $PARAM_SQL_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully executed parameterized SQL.${NC}"
+else
+  echo -e "${RED}Failed to execute parameterized SQL. Response:${NC}"
+  echo $PARAM_SQL_RESPONSE
+fi
+
+# Step 6: Test multiple parameterized queries
+echo -e "\n${BLUE}Step 6: Testing multiple parameterized queries...${NC}"
+MULTI_PARAM_RESPONSE=$(curl -s -X POST "${HOST}/db/api/sql" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "param_sql": [
+      {
+        "query": "INSERT INTO test_table (id, name, value) VALUES (?, ?, ?)",
+        "values": [5, "Batch Item 1", 500]
+      },
+      {
+        "query": "INSERT INTO test_table (id, name, value) VALUES (?, ?, ?)",
+        "values": [6, "Batch Item 2", 600]
+      }
+    ]
+  }')
+
+echo $MULTI_PARAM_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully executed multiple parameterized queries.${NC}"
+else
+  echo -e "${RED}Failed to execute multiple parameterized queries. Response:${NC}"
+  echo $MULTI_PARAM_RESPONSE
+fi
+
+# Step 7: Test Query - Select all data
+echo -e "\n${BLUE}Step 7: Testing query - Select all data...${NC}"
+SELECT_RESPONSE=$(curl -s -X POST "${HOST}/db/api/query" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table": "test_table",
+    "order_by": ["id ASC"]
+  }')
+
+echo $SELECT_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully queried all data.${NC}"
+  echo -e "${BLUE}Found records:${NC} $(echo $SELECT_RESPONSE | grep -o '"count":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to query data. Response:${NC}"
+  echo $SELECT_RESPONSE
+fi
+
+# Step 8: Test Query - With condition
+echo -e "\n${BLUE}Step 8: Testing query with condition...${NC}"
+CONDITION_RESPONSE=$(curl -s -X POST "${HOST}/db/api/query" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table": "test_table",
+    "condition": {
+      "field": "value",
+      "operator": ">",
+      "value": 300
+    }
+  }')
+
+echo $CONDITION_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully queried data with condition.${NC}"
+  echo -e "${BLUE}Found records:${NC} $(echo $CONDITION_RESPONSE | grep -o '"count":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to query data with condition. Response:${NC}"
+  echo $CONDITION_RESPONSE
+fi
+
+# Step 9: Test Query - Single row
+echo -e "\n${BLUE}Step 9: Testing query for a single row...${NC}"
+SINGLE_ROW_RESPONSE=$(curl -s -X POST "${HOST}/db/api/query" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table": "test_table",
+    "condition": {
+      "field": "id",
+      "operator": "=",
+      "value": 1
+    },
+    "single_row": true
+  }')
+
+echo $SINGLE_ROW_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully queried single row.${NC}"
+else
+  echo -e "${RED}Failed to query single row. Response:${NC}"
+  echo $SINGLE_ROW_RESPONSE
+fi
+
+# Step 10: Test Query - Raw SQL
+echo -e "\n${BLUE}Step 10: Testing sql with raw SQL...${NC}"
+RAW_SQL_RESPONSE=$(curl -s -X POST "${HOST}/db/api/sql" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      "SELECT id, name, value FROM test_table WHERE value BETWEEN 200 AND 500 ORDER BY value DESC"
+      ]
+  }')
+
+echo $RAW_SQL_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully executed raw SQL query.${NC}"
+  echo -e "${BLUE}Found records:${NC} $(echo $RAW_SQL_RESPONSE | grep -o '"count":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to execute raw SQL query. Response:${NC}"
+  echo $RAW_SQL_RESPONSE
+fi
+
+# Step 11: Test query with pagination
+echo -e "\n${BLUE}Step 11: Testing query with pagination...${NC}"
+PAGINATED_RESPONSE=$(curl -s -X POST "${HOST}/db/api/query" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table": "test_table",
+    "limit": 2,
+    "offset": 2,
+    "order_by": ["id ASC"]
+  }')
+
+echo $PAGINATED_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully executed paginated query.${NC}"
+  echo -e "${BLUE}Found records:${NC} $(echo $PAGINATED_RESPONSE | grep -o '"count":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to execute paginated query. Response:${NC}"
+  echo $PAGINATED_RESPONSE
+fi
+
+# Step 12: Test token refresh
+echo -e "\n${BLUE}Step 12: Testing token refresh...${NC}"
+REFRESH_RESPONSE=$(curl -s -X POST "${HOST}/db/refresh" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"refresh_token\": \"${REFRESH_TOKEN}\"
+  }")
+
+NEW_TOKEN=$(echo $REFRESH_RESPONSE | grep -o '"token":"[^"]*' | sed 's/"token":"//')
+
+if [ -z "$NEW_TOKEN" ]; then
+  echo -e "${RED}Failed to refresh token. Response:${NC}"
+  echo $REFRESH_RESPONSE
+else
+  echo -e "${GREEN}Successfully refreshed token.${NC}"
+  echo "New Token: ${NEW_TOKEN:0:10}...${NEW_TOKEN: -5}"
+
+  # Test the new token with a simple query
+  echo -e "\n${BLUE}Step 13: Testing with the new token...${NC}"
+  NEW_TOKEN_TEST=$(curl -s -X POST "${HOST}/db/api/query" \
+    -H "API_KEY: ${API_KEY}" \
+    -H "CLIENT_ID: ${CLIENT_ID}" \
+    -H "Authorization: Bearer ${NEW_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "table": "test_table",
+      "limit": 1
+    }')
+
+  echo $NEW_TOKEN_TEST | grep -q '"status":200'
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN}Successfully used new token for query.${NC}"
+  else
+    echo -e "${RED}Failed to use new token. Response:${NC}"
+    echo $NEW_TOKEN_TEST
+  fi
+fi
+
+# Step 14: Cleanup - Drop test table
+echo -e "\n${BLUE}Step 14: Cleanup - Dropping test table...${NC}"
+DROP_TABLE_RESPONSE=$(curl -s -X POST "${HOST}/db/api/sql" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${NEW_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      "DROP TABLE IF EXISTS test_table"
+    ]
+  }')
+
+echo $DROP_TABLE_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully dropped test table.${NC}"
+else
+  echo -e "${RED}Failed to drop test table. Response:${NC}"
+  echo $DROP_TABLE_RESPONSE
+fi
+
+echo -e "\n${GREEN}Test suite completed.${NC}"

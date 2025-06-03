@@ -21,7 +21,7 @@ func main() {
 	// }
 
 	utils.ReloadEnvEach(".env.dev")
-	config := suresql.LoadConfigFromEnvironment()
+	config := suresql.LoadDBMSConfigFromEnvironment()
 	config.PrintDebug(true)
 
 	db, err := suresql.NewDatabase(config)

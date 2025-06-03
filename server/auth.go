@@ -107,7 +107,7 @@ func userNameExist(username string) (UserTable, error) {
 }
 
 func passwordMatch(user UserTable, pass string) error {
-	encr, err := encryption.HashPin(pass, suresql.CurrentNode.InternalConfig.APIKey, suresql.CurrentNode.InternalConfig.ClientID)
+	encr, err := encryption.HashPin(pass, suresql.CurrentNode.Config.APIKey, suresql.CurrentNode.Config.ClientID)
 	if err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func DecryptCredentials(data string, apiKey, clientID string) (*Credentials, err
 }
 
 // NOTE: maybe change this to just return empty string if error, then do checking if token=="" instead of error
-func DecodeToken(tokenstring string, config *suresql.SureSQLConfig) (string, error) {
+func DecodeToken(tokenstring string, config *suresql.SureSQLDBMSConfig) (string, error) {
 	tokenMap, err := encryption.ParseJWEToMap(tokenstring, []byte(config.JWEKey))
 	if err != nil {
 	}

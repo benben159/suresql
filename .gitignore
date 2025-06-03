@@ -22,7 +22,7 @@ go.work
 go.work.sum
 
 # env file
-.env.*
+.env*
 
 # credentials or ssh key
 id_ed25519

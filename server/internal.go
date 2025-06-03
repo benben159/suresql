@@ -50,7 +50,7 @@ type UserUpdateRequest struct {
 }
 
 // Add these functions to your RegisterRoutes function in handler.go
-func RegisterInternalRoutes(server simplehttp.MedaServer) {
+func RegisterInternalRoutes(server simplehttp.Server) {
 	// Create an internal group with Basic Auth protection
 	internalAPI := server.Group(DEFAULT_INTERNAL_API)
 	internalAPI.Use(simplehttp.MiddlewareBasicAuth(
@@ -70,7 +70,7 @@ func RegisterInternalRoutes(server simplehttp.MedaServer) {
 }
 
 // HandleListUsers retrieves all users from the system (or filtered by username)
-func HandleListUsers(ctx simplehttp.MedaContext) error {
+func HandleListUsers(ctx simplehttp.Context) error {
 	state := NewHandlerState(ctx, suresql.CurrentNode.InternalConfig.Username, "list_users", UserTable{}.TableName())
 
 	// Get optional filter parameter
@@ -114,7 +114,7 @@ func HandleListUsers(ctx simplehttp.MedaContext) error {
 }
 
 // HandleCreateUser creates a new user in the system
-func HandleCreateUser(ctx simplehttp.MedaContext) error {
+func HandleCreateUser(ctx simplehttp.Context) error {
 	state := NewHandlerState(ctx, suresql.CurrentNode.InternalConfig.Username, "create_user", UserTable{}.TableName())
 
 	// Parse request body
@@ -142,8 +142,8 @@ func HandleCreateUser(ctx simplehttp.MedaContext) error {
 	// Hash the password
 	hashedPassword, err := encryption.HashPin(
 		createReq.Password,
-		suresql.CurrentNode.InternalConfig.APIKey,
-		suresql.CurrentNode.InternalConfig.ClientID,
+		suresql.CurrentNode.Config.APIKey,
+		suresql.CurrentNode.Config.ClientID,
 	)
 	if err != nil {
 		return state.SetError("Failed to hash password", err, http.StatusInternalServerError).LogAndResponse("failed to hash password", nil, true)
@@ -186,7 +186,7 @@ func HandleCreateUser(ctx simplehttp.MedaContext) error {
 }
 
 // HandleUpdateUser updates an existing user
-func HandleUpdateUser(ctx simplehttp.MedaContext) error {
+func HandleUpdateUser(ctx simplehttp.Context) error {
 	state := NewHandlerState(ctx, suresql.CurrentNode.InternalConfig.Username, "update_user", UserTable{}.TableName())
 
 	// Parse request body
@@ -234,8 +234,8 @@ func HandleUpdateUser(ctx simplehttp.MedaContext) error {
 	if updateReq.NewPassword != "" {
 		hashedPassword, err := encryption.HashPin(
 			updateReq.NewPassword,
-			suresql.CurrentNode.InternalConfig.APIKey,
-			suresql.CurrentNode.InternalConfig.ClientID,
+			suresql.CurrentNode.Config.APIKey,
+			suresql.CurrentNode.Config.ClientID,
 		)
 		if err != nil {
 			return state.SetError("Failed to hash password", err, http.StatusInternalServerError).LogAndResponse("failed to hash password", nil, true)
@@ -275,7 +275,7 @@ func HandleUpdateUser(ctx simplehttp.MedaContext) error {
 }
 
 // HandleDeleteUser deletes a user from the system
-func HandleDeleteUser(ctx simplehttp.MedaContext) error {
+func HandleDeleteUser(ctx simplehttp.Context) error {
 	state := NewHandlerState(ctx, suresql.CurrentNode.InternalConfig.Username, "delete_user", UserTable{}.TableName())
 
 	// Get username from URL parameter
@@ -308,7 +308,7 @@ func HandleDeleteUser(ctx simplehttp.MedaContext) error {
 }
 
 // HandleGetSchema only for internal
-func HandleGetSchema(ctx simplehttp.MedaContext) error {
+func HandleGetSchema(ctx simplehttp.Context) error {
 	state := NewHandlerState(ctx, suresql.CurrentNode.InternalConfig.Username, "handle_schema", suresql.SchemaTable)
 
 	if strings.Contains(ctx.GetPath(), "getschema") {
@@ -320,7 +320,7 @@ func HandleGetSchema(ctx simplehttp.MedaContext) error {
 }
 
 // HandleGetSchema only for internal
-func HandleDBMSStatus(ctx simplehttp.MedaContext) error {
+func HandleDBMSStatus(ctx simplehttp.Context) error {
 	state := NewHandlerState(ctx, suresql.CurrentNode.InternalConfig.Username, "dbms_status", suresql.SchemaTable)
 
 	if strings.Contains(ctx.GetPath(), "dbms_status") {

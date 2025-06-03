@@ -1,0 +1,43 @@
+#!/bin/bash
+. ./.env.simplehttp
+. ./.env.dev
+. ./.env
+. ./.env.suresql
+echo "host    : ${SURESQL_HOST}"
+echo "port    : ${SURESQL_PORT}"
+echo "apikey  : ${SURESQL_API_KEY}"
+echo "clientid: ${SURESQL_CLIENT_ID}"
+
+echo -e "\nStep 0: Ping database ..."
+CONNECT_RESPONSE=$(curl -s -X GET http://${SURESQL_HOST}:${SURESQL_PORT}/db/pingpong \
+  -H "Content-Type: application/json" \
+  -H "API_KEY: ${SURESQL_API_KEY}" \
+  -H "CLIENT_ID: ${SURESQL_CLIENT_ID}")
+echo $CONNECT_RESPONSE
+
+
+echo -e "\nStep 1: Connecting to the database to get token..."
+CONNECT_RESPONSE=$(curl -s -X POST http://${SURESQL_HOST}:${SURESQL_PORT}/db/connect \
+  -H "Content-Type: application/json" \
+  -H "API_KEY: ${SURESQL_API_KEY}" \
+  -H "CLIENT_ID: ${SURESQL_CLIENT_ID}" \
+  -d '{
+    "username": "admin",
+    "password": "admin123"
+  }')
+
+# Extract token and refresh token using grep and sed
+TOKEN=$(echo $CONNECT_RESPONSE | grep -o '"token":"[^"]*' | sed 's/"token":"//')
+REFRESH_TOKEN=$(echo $CONNECT_RESPONSE | grep -o '"refresh_token":"[^"]*' | sed 's/"refresh_token":"//')
+
+echo $CONNECT_RESPONSE
+echo "Token = ${TOKEN}"
+
+# Step 2: Test Database Status
+echo -e "\nStep 2: Testing database status..."
+STATUS_RESPONSE=$(curl -s -X GET "http://${SURESQL_HOST}:${SURESQL_PORT}/db/api/status" \
+  -H "API_KEY: ${SURESQL_API_KEY}" \
+  -H "CLIENT_ID: ${SURESQL_CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}")
+
+echo $STATUS_RESPONSE

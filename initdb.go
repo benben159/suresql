@@ -20,7 +20,7 @@ const (
 // Make sure to call this AFTER connect internal is called!! Because we need the DB connection already.
 func InitDB(force bool) error {
 	// If DB is already init, then do not run again
-	if CurrentNode.Settings.IsInitDone && !force {
+	if CurrentNode.Config.IsInitDone && !force {
 		// simplelog.LogFormat("DB already initialized")
 		return ErrDBInitializedAlready
 	}
@@ -60,7 +60,7 @@ func InitDB(force bool) error {
 		// simplelog.LogFormat("%s", str)
 		// }
 	}
-	res := CurrentNode.InternalConnection.ExecOneSQL("UPDATE " + CurrentNode.Settings.TableName() + " SET is_init_done=true")
+	res := CurrentNode.InternalConnection.ExecOneSQL("UPDATE " + CurrentNode.Config.TableName() + " SET is_init_done=true")
 	if res.Error != nil {
 		// NOTE: if one of the file has error, then cannot continue just return. Meaning could potentially initialized partially
 		// TODO: create rollback functionality here.

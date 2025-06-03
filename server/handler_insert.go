@@ -12,7 +12,7 @@ import (
 )
 
 // HandleInsert processes record insertion requests
-func HandleInsert(ctx simplehttp.MedaContext) error {
+func HandleInsert(ctx simplehttp.Context) error {
 	state := NewHandlerTokenState(ctx, "/insert/", "request")
 
 	// Get username from context (set by TokenValidationFromTTL)

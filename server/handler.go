@@ -26,9 +26,8 @@ import (
 
 // Define constants for token expiration and generation
 const (
-	DEFAULT_HTTP_ENVIRONMENT = "./.env.simplehttp"
-
-	LOG_RAW_QUERY = false // TODO : this one if on, currently only logging the results, instead of the queries.
+	DEFAULT_HTTP_ENVIRONMENT = "./.env.suresql"
+	LOG_RAW_QUERY            = false // TODO : this one if on, currently only logging the results, instead of the queries.
 	// NO_ERROR_CODE = 8999 // just a code to denote no_error when using medaerror
 
 	// DB_LOG        = "db"
@@ -37,12 +36,31 @@ const (
 	// STATE_LOGGING_EVENTS = "success,error"
 )
 
-func CreateServer() simplehttp.MedaServer {
+// if DB settings is not there, get from environment. DB's settings table always wins
+func CopySettingsFromSureSQL(cnode suresql.SureSQLNode, config *simplehttp.Config) {
+	if cnode.Config.Host != "" {
+		config.Hostname = cnode.Config.Host
+	}
+	if cnode.Config.Port != "" {
+		config.Port = cnode.Config.Port
+	}
+	if cnode.Config.Label != "" {
+		config.AppName = cnode.Config.Label
+	}
+	// CurrentNode.Settings.SSL = os.Getenv("SURESQL_SSL")
+	config.SSLRedirect = cnode.Config.SSL
+}
+
+func CreateServer(cnode suresql.SureSQLNode) simplehttp.Server {
 	simplelog.DEBUG_LEVEL = 1
 
 	el := metrics.StartTimeIt("Loading http environment...", 0)
-	utils.LoadEnv(DEFAULT_HTTP_ENVIRONMENT)
+	// Reload will overwrite, so put the most procedence last
+	utils.ReloadEnvEach("./.env.simplehttp", DEFAULT_HTTP_ENVIRONMENT)
+	// below is optional because simplehttp will look for environment variables
+	// that is specific to simplehttp. While we want to use SureSQL setting.
 	config := simplehttp.LoadConfig()
+	CopySettingsFromSureSQL(cnode, config)
 	metrics.StopTimeItPrint(el, "Done")
 
 	el = metrics.StartTimeIt("Creating http server...", 0)
@@ -50,7 +68,7 @@ func CreateServer() simplehttp.MedaServer {
 	server := fiber.NewServer(config)
 	metrics.StopTimeItPrint(el, "Done")
 
-	// Initialize token maps
+	// Initialize token maps (Redis alternative)
 	el = metrics.StartTimeIt("Initializing TTLMaps (Redis alternative) ...", 0)
 	InitTokenMaps()
 	metrics.StopTimeItPrint(el, "Done")
@@ -69,7 +87,7 @@ func CreateServer() simplehttp.MedaServer {
 }
 
 // RegisterRoutes sets up all the routes for the SureSQL API
-func RegisterRoutes(server simplehttp.MedaServer) {
+func RegisterRoutes(server simplehttp.Server) {
 	CORSConfig := &simplehttp.CORSConfig{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
@@ -93,6 +111,10 @@ func RegisterRoutes(server simplehttp.MedaServer) {
 	{
 		db.POST("/connect", HandleConnect)
 		db.POST("/refresh", HandleRefresh)
+		db.GET("/pingpong", func(ctx simplehttp.Context) error {
+			state := NewHandlerState(ctx, "", "/pingpong", "pingpong")
+			return state.SetSuccess(suresql.PingPong(), nil).LogAndResponse("pingpong response", nil, true)
+		})
 	}
 
 	api := db.Group("/api")
@@ -110,7 +132,7 @@ func RegisterRoutes(server simplehttp.MedaServer) {
 }
 
 // HandleConnect authenticates a user and returns tokens
-func HandleConnect(ctx simplehttp.MedaContext) error {
+func HandleConnect(ctx simplehttp.Context) error {
 	// Set the state
 	state := NewHandlerState(ctx, "", "/connect", UserTable{}.TableName())
 
@@ -166,7 +188,7 @@ func HandleConnect(ctx simplehttp.MedaContext) error {
 }
 
 // HandleRefresh refreshes an existing token
-func HandleRefresh(ctx simplehttp.MedaContext) error {
+func HandleRefresh(ctx simplehttp.Context) error {
 	state := NewHandlerState(ctx, suresql.CurrentNode.InternalConfig.Username, "/refresh", "cache/ttlmap")
 
 	// Parse request body
@@ -198,7 +220,7 @@ func HandleRefresh(ctx simplehttp.MedaContext) error {
 }
 
 // HandleDBStatus returns the current database status
-func HandleDBStatus(ctx simplehttp.MedaContext) error {
+func HandleDBStatus(ctx simplehttp.Context) error {
 	state := NewHandlerTokenState(ctx, "db_status", "ttlmap/db")
 
 	// Get username from context (set by TokenValidationFromTTL)

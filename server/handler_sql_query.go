@@ -14,7 +14,7 @@ import (
 
 // HandleSQLExecution processes SQL execution requests
 // It is protected by both API Key (from AuthMiddleware) and Token (from TokenValidationMiddleware)
-func HandleSQLQuery(ctx simplehttp.MedaContext) error {
+func HandleSQLQuery(ctx simplehttp.Context) error {
 	state := NewHandlerTokenState(ctx, "/querysql/", "request")
 	// Get username from context (set by TokenValidationFromTTL)
 	if state.Token == nil {

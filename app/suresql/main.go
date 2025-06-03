@@ -19,7 +19,7 @@ func main() {
 	}
 
 	// Prepare the SureSQL
-	server := server.CreateServer()
+	server := server.CreateServer(suresql.CurrentNode)
 
 	suresql.CurrentNode.PrintWelcomePretty()
 	// Start SureSQL server

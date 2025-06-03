@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# Define the working directory mapping and app name
+GO_ORI_PATH="/go/src/app"
+WORKDIR="$PWD"
+APP_NAME="suresql" # Customize your app name here
+
+# Function to detect host OS
+get_host_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "$ID" | tr '[:upper:]' '[:lower:]' # Convert to lowercase
+    elif [ "$(uname)" == "Darwin" ]; then
+        echo "darwin"
+    elif [ "$(uname -s | tr '[:upper:]' '[:lower:]')" == "cygwin" ] || [ "$(uname -s | tr '[:upper:]' '[:lower:]')" == "mingw" ] || [ "$(uname -s | tr '[:upper:]' '[:lower:]')" == "msys" ]; then
+        echo "windows"
+    else
+        echo "unknown"
+    fi
+}
+
+# Function to detect host architecture
+get_host_arch() {
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+        "x86_64")
+            echo "amd64"
+            ;;
+        "aarch64" | "arm64")
+            echo "arm64"
+            ;;
+        "i386" | "i686")
+            echo "386"
+            ;;
+        "arm" | "armv7l")
+            echo "arm"
+            ;;
+        *)
+            echo "$arch" # Return raw arch if unknown
+            echo "Warning: Unknown architecture '$arch'. Using as-is." >&2
+            ;;
+    esac
+}
+
+# Function to determine the appropriate Golang image
+get_golang_image() {
+    local os="$1"
+    local golang_version="1.23" # Specify your desired Go version
+    case "$os" in
+        "debian")
+            echo "golang:${golang_version}-bookworm" # Debian 12
+            ;;
+        "ubuntu")
+            echo "golang:${golang_version}-bullseye" # Ubuntu uses Debian-based images
+            ;;
+        "alpine")
+            echo "golang:${golang_version}-alpine" # Alpine Linux
+            ;;
+        "centos" | "rhel" | "fedora")
+            echo "golang:${golang_version}" # Default for RPM-based distros
+            ;;
+        "darwin" | "windows")
+            echo "golang:${golang_version}" # Default for macOS/Windows
+            ;;
+        *)
+            echo "golang:${golang_version}" # Fallback to default Golang image
+            echo "Warning: Unknown host OS '$os'. Using default golang:${golang_version} image." >&2
+            ;;
+    esac
+}
+
+# Detect host OS and architecture
+HOST_OS=$(get_host_os)
+HOST_ARCH=$(get_host_arch)
+echo "Detected host OS: $HOST_OS"
+echo "Detected host architecture: $HOST_ARCH"
+
+# Get the appropriate Golang image
+GOLANG_IMAGE=$(get_golang_image "$HOST_OS")
+echo "Using Golang image: $GOLANG_IMAGE"
+
+# Define build output name
+BUILD_OUTPUT="build/${APP_NAME}-${HOST_ARCH}-${HOST_OS}"
+
+# Create build directory if it doesn't exist
+mkdir -p build
+
+# Run the Docker command with the selected image
+docker run --rm -v "$WORKDIR:$GO_ORI_PATH" -w "$GO_ORI_PATH" "$GOLANG_IMAGE" go build -v -o "$BUILD_OUTPUT" ./app/${APP_NAME}/...
+
+# Check if build was successful
+if [ $? -eq 0 ]; then
+    echo "Build successful: $BUILD_OUTPUT"
+    # Create or update symbolic link
+    ln -sf "${WORKDIR}/${BUILD_OUTPUT}" "${WORKDIR}/build/${APP_NAME}"
+    echo "Created symbolic link: build/${APP_NAME} -> ${APP_NAME}-${HOST_ARCH}-${HOST_OS}"
+else
+    echo "Build failed!" >&2
+    exit 1
+fi

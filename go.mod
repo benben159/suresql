@@ -4,7 +4,7 @@ go 1.23.2
 
 require (
 	github.com/medatechnology/goutil v0.0.7
-	github.com/medatechnology/simplehttp v0.0.2
+	github.com/medatechnology/simplehttp v0.0.3
 	github.com/medatechnology/simpleorm v0.0.2
 )
 

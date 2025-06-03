@@ -15,13 +15,13 @@ const (
 )
 
 // AuthMiddleware verifies API key and client ID from request headers
-func MiddlewareAPIKeyHeader() simplehttp.MedaMiddleware {
+func MiddlewareAPIKeyHeader() simplehttp.Middleware {
 	return simplehttp.WithName("APIKeyClientID", APIKeyClientIDHeader())
 }
 
-func APIKeyClientIDHeader() simplehttp.MedaMiddlewareFunc {
-	return func(next simplehttp.MedaHandlerFunc) simplehttp.MedaHandlerFunc {
-		return func(ctx simplehttp.MedaContext) error {
+func APIKeyClientIDHeader() simplehttp.MiddlewareFunc {
+	return func(next simplehttp.HandlerFunc) simplehttp.HandlerFunc {
+		return func(ctx simplehttp.Context) error {
 
 			// Get headers, make sure you already have MiddlewareHeaderParser before invoking this middleware
 			state := NewMiddlewareState(ctx, "APIKey/ClientID")
@@ -32,7 +32,7 @@ func APIKeyClientIDHeader() simplehttp.MedaMiddlewareFunc {
 				return state.SetError("API key required", nil, http.StatusUnauthorized).LogAndResponse("API key not provided", nil, true)
 			}
 
-			if suresql.CurrentNode.InternalConfig.APIKey != apiKey {
+			if suresql.CurrentNode.Config.APIKey != apiKey {
 				return state.SetError("Invalid API key", nil, http.StatusUnauthorized).LogAndResponse("Invalid API key", nil, true)
 			}
 
@@ -42,7 +42,7 @@ func APIKeyClientIDHeader() simplehttp.MedaMiddlewareFunc {
 				return state.SetError("Client ID required", nil, http.StatusUnauthorized).LogAndResponse("Client ID not provided", nil, true)
 			}
 
-			if suresql.CurrentNode.InternalConfig.ClientID != clientID {
+			if suresql.CurrentNode.Config.ClientID != clientID {
 				return state.SetError("Invalid Client ID", nil, http.StatusUnauthorized).LogAndResponse("Invalid Client ID", nil, true)
 			}
 
@@ -53,13 +53,13 @@ func APIKeyClientIDHeader() simplehttp.MedaMiddlewareFunc {
 }
 
 // TokenValidationMiddleware verifies that a valid token is present
-func MiddlwareTokenCheck() simplehttp.MedaMiddleware {
+func MiddlwareTokenCheck() simplehttp.Middleware {
 	return simplehttp.WithName("token checker", TokenValidationFromTTL())
 }
 
-func TokenValidationFromTTL() simplehttp.MedaMiddlewareFunc {
-	return func(next simplehttp.MedaHandlerFunc) simplehttp.MedaHandlerFunc {
-		return func(ctx simplehttp.MedaContext) error {
+func TokenValidationFromTTL() simplehttp.MiddlewareFunc {
+	return func(next simplehttp.HandlerFunc) simplehttp.HandlerFunc {
+		return func(ctx simplehttp.Context) error {
 			// Get headers, make sure you already have MiddlewareHeaderParser before invoking this middleware
 			state := NewMiddlewareState(ctx, "token")
 

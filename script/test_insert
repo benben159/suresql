@@ -1,0 +1,370 @@
+#!/bin/bash
+
+. ./.env.simplehttp
+. ./.env.dev
+
+# Configuration
+HOST="http://${SURESQL_HOST}:${SURESQL_PORT}"  # Change this to your server address
+API_KEY=${SURESQL_API_KEY}        # Replace with your API key
+CLIENT_ID=${SURESQL_CLIENT_ID}    # Replace with your client ID
+USER_NAME="admin"
+USER_PASS="admin123"
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}SureSQL Insert API Test Script${NC}"
+echo -e "${BLUE}=============================${NC}"
+
+# Step 1: Connect and get a token
+echo -e "\n${BLUE}Step 1: Connecting to the database to get token...${NC}"
+CONNECT_RESPONSE=$(curl -s -X POST "${HOST}/db/connect" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{\"username\": \"$USER_NAME\", \"password\": \"${USER_PASS}\"}")
+
+# Extract token and refresh token using grep and sed
+TOKEN=$(echo $CONNECT_RESPONSE | grep -o '"token":"[^"]*' | sed 's/"token":"//')
+REFRESH_TOKEN=$(echo $CONNECT_RESPONSE | grep -o '"refresh_token":"[^"]*' | sed 's/"refresh_token":"//')
+
+if [ -z "$TOKEN" ]; then
+  echo -e "${RED}Failed to get token. Response:${NC}"
+  echo $CONNECT_RESPONSE
+  exit 1
+else
+  echo -e "${GREEN}Successfully obtained token.${NC}"
+  echo "Token: ${TOKEN:0:10}...${TOKEN: -5}"
+fi
+
+# Step 2: Create test tables
+echo -e "\n${BLUE}Step 2: Creating test tables...${NC}"
+CREATE_TABLES_RESPONSE=$(curl -s -X POST "${HOST}/db/api/sql" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      "CREATE TABLE IF NOT EXISTS test_table1 (id INTEGER PRIMARY KEY, name TEXT, value INTEGER)",
+      "CREATE TABLE IF NOT EXISTS test_table2 (id INTEGER PRIMARY KEY, title TEXT, amount REAL)"
+    ]
+  }')
+
+echo $CREATE_TABLES_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully created test tables.${NC}"
+else
+  echo -e "${RED}Failed to create test tables. Response:${NC}"
+  echo $CREATE_TABLES_RESPONSE
+  exit 1
+fi
+
+# Test Case 1: Insert a single record
+echo -e "\n${YELLOW}Test Case 1: Insert a single record${NC}"
+SINGLE_INSERT_RESPONSE=$(curl -s -X POST "${HOST}/db/api/insert" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {
+        "TableName": "test_table1",
+        "Data": {
+          "id": 1,
+          "name": "Test Item",
+          "value": 100
+        }
+      }
+    ],
+    "queue": false
+  }')
+
+echo $SINGLE_INSERT_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully inserted single record.${NC}"
+  echo -e "Rows affected: $(echo $SINGLE_INSERT_RESPONSE | grep -o '"rows_affected":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to insert single record. Response:${NC}"
+  echo $SINGLE_INSERT_RESPONSE
+fi
+
+# Test Case 2: Insert multiple records for the same table
+echo -e "\n${YELLOW}Test Case 2: Insert multiple records for the same table${NC}"
+SAME_TABLE_INSERT_RESPONSE=$(curl -s -X POST "${HOST}/db/api/insert" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {
+        "TableName": "test_table1",
+        "Data": {
+          "id": 2,
+          "name": "Item 2",
+          "value": 200
+        }
+      },
+      {
+        "TableName": "test_table1",
+        "Data": {
+          "id": 3,
+          "name": "Item 3",
+          "value": 300
+        }
+      },
+      {
+        "TableName": "test_table1",
+        "Data": {
+          "id": 4,
+          "name": "Item 4",
+          "value": 400
+        }
+      }
+    ],
+    "same_table": true,
+    "queue": false
+  }')
+
+echo $SAME_TABLE_INSERT_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully inserted multiple records (same table).${NC}"
+  echo -e "Rows affected: $(echo $SAME_TABLE_INSERT_RESPONSE | grep -o '"rows_affected":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to insert multiple records (same table). Response:${NC}"
+  echo $SAME_TABLE_INSERT_RESPONSE
+fi
+
+# Test Case 3: Insert multiple records for different tables
+echo -e "\n${YELLOW}Test Case 3: Insert multiple records for different tables${NC}"
+DIFF_TABLE_INSERT_RESPONSE=$(curl -s -X POST "${HOST}/db/api/insert" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {
+        "TableName": "test_table1",
+        "Data": {
+          "id": 5,
+          "name": "Item 5",
+          "value": 500
+        }
+      },
+      {
+        "TableName": "test_table2",
+        "Data": {
+          "id": 1,
+          "title": "First Item",
+          "amount": 123.45
+        }
+      },
+      {
+        "TableName": "test_table2",
+        "Data": {
+          "id": 2,
+          "title": "Second Item",
+          "amount": 678.90
+        }
+      }
+    ],
+    "same_table": false,
+    "queue": false
+  }')
+
+echo $DIFF_TABLE_INSERT_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully inserted multiple records (different tables).${NC}"
+  echo -e "Rows affected: $(echo $DIFF_TABLE_INSERT_RESPONSE | grep -o '"rows_affected":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to insert multiple records (different tables). Response:${NC}"
+  echo $DIFF_TABLE_INSERT_RESPONSE
+fi
+
+# Test Case 4: Queue mode - Single record
+echo -e "\n${YELLOW}Test Case 4: Queue mode - Single record${NC}"
+QUEUE_SINGLE_RESPONSE=$(curl -s -X POST "${HOST}/db/api/insert" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {
+        "TableName": "test_table1",
+        "Data": {
+          "id": 6,
+          "name": "Queued Item",
+          "value": 600
+        }
+      }
+    ],
+    "queue": true
+  }')
+
+echo $QUEUE_SINGLE_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully queued single record.${NC}"
+  echo -e "Rows affected: $(echo $QUEUE_SINGLE_RESPONSE | grep -o '"rows_affected":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to queue single record. Response:${NC}"
+  echo $QUEUE_SINGLE_RESPONSE
+fi
+
+# Test Case 5: Queue mode - Multiple records for same table
+echo -e "\n${YELLOW}Test Case 5: Queue mode - Multiple records for same table${NC}"
+QUEUE_SAME_TABLE_RESPONSE=$(curl -s -X POST "${HOST}/db/api/insert" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {
+        "TableName": "test_table2",
+        "Data": {
+          "id": 3,
+          "title": "Queued Item 1",
+          "amount": 111.11
+        }
+      },
+      {
+        "TableName": "test_table2",
+        "Data": {
+          "id": 4,
+          "title": "Queued Item 2",
+          "amount": 222.22
+        }
+      }
+    ],
+    "same_table": true,
+    "queue": true
+  }')
+
+echo $QUEUE_SAME_TABLE_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully queued multiple records (same table).${NC}"
+  echo -e "Rows affected: $(echo $QUEUE_SAME_TABLE_RESPONSE | grep -o '"rows_affected":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to queue multiple records (same table). Response:${NC}"
+  echo $QUEUE_SAME_TABLE_RESPONSE
+fi
+
+# Test Case 6: Queue mode - Multiple records for different tables
+echo -e "\n${YELLOW}Test Case 6: Queue mode - Multiple records for different tables${NC}"
+QUEUE_DIFF_TABLE_RESPONSE=$(curl -s -X POST "${HOST}/db/api/insert" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {
+        "TableName": "test_table1",
+        "Data": {
+          "id": 7,
+          "name": "Mixed Table Item 1",
+          "value": 700
+        }
+      },
+      {
+        "TableName": "test_table2",
+        "Data": {
+          "id": 5,
+          "title": "Mixed Table Item 2",
+          "amount": 333.33
+        }
+      }
+    ],
+    "same_table": false,
+    "queue": true
+  }')
+
+echo $QUEUE_DIFF_TABLE_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully queued multiple records (different tables).${NC}"
+  echo -e "Rows affected: $(echo $QUEUE_DIFF_TABLE_RESPONSE | grep -o '"rows_affected":[0-9]*' | cut -d':' -f2)"
+else
+  echo -e "${RED}Failed to queue multiple records (different tables). Response:${NC}"
+  echo $QUEUE_DIFF_TABLE_RESPONSE
+fi
+
+# Test Case 7: Verify insertions by querying data
+echo -e "\n${YELLOW}Test Case 7: Verify insertions by querying data${NC}"
+
+echo -e "\n${BLUE}Querying test_table1:${NC}"
+QUERY_TABLE1_RESPONSE=$(curl -s -X POST "${HOST}/db/api/query" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table": "test_table1",
+    "condition": {
+      "order_by": ["id ASC"]
+    }
+  }')
+
+echo $QUERY_TABLE1_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  COUNT1=$(echo $QUERY_TABLE1_RESPONSE | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  echo -e "${GREEN}Successfully queried test_table1.${NC}"
+  echo -e "Found ${COUNT1} records in test_table1."
+else
+  echo -e "${RED}Failed to query test_table1. Response:${NC}"
+  echo $QUERY_TABLE1_RESPONSE
+fi
+
+echo -e "\n${BLUE}Querying test_table2:${NC}"
+QUERY_TABLE2_RESPONSE=$(curl -s -X POST "${HOST}/db/api/query" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "table": "test_table2",
+    "condition": {
+      "order_by": ["id ASC"]
+    }
+  }')
+
+echo $QUERY_TABLE2_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  COUNT2=$(echo $QUERY_TABLE2_RESPONSE | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  echo -e "${GREEN}Successfully queried test_table2.${NC}"
+  echo -e "Found ${COUNT2} records in test_table2."
+else
+  echo -e "${RED}Failed to query test_table2. Response:${NC}"
+  echo $QUERY_TABLE2_RESPONSE
+fi
+
+# Cleanup: Drop test tables
+echo -e "\n${BLUE}Cleanup: Dropping test tables...${NC}"
+DROP_TABLES_RESPONSE=$(curl -s -X POST "${HOST}/db/api/sql" \
+  -H "API_KEY: ${API_KEY}" \
+  -H "CLIENT_ID: ${CLIENT_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statements": [
+      "DROP TABLE IF EXISTS test_table1",
+      "DROP TABLE IF EXISTS test_table2"
+    ]
+  }')
+
+echo $DROP_TABLES_RESPONSE | grep -q '"status":200'
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}Successfully dropped test tables.${NC}"
+else
+  echo -e "${RED}Failed to drop test tables. Response:${NC}"
+  echo $DROP_TABLES_RESPONSE
+fi
+
+echo -e "\n${GREEN}Test suite completed.${NC}"

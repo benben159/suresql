@@ -16,11 +16,16 @@ import (
 )
 
 const (
-	ENV_FILES   = ".env.dev"
-	APP_NAME    = "SureSQL"
-	APP_VERSION = "0.0.1"
+	SURESQL_ENV_FILE = ".env.suresql"
+	APP_NAME         = "SureSQL"
+	APP_VERSION      = "0.0.1"
 	// DB_INITIALIZED               = "DB already initialized"
 )
+
+// Just for debugging, pingpong function
+func PingPong() string {
+	return APP_NAME + " " + APP_VERSION + " is running"
+}
 
 // Check if pool is enabled, and max pool has not reached
 func (n SureSQLNode) IsPoolAvailable() bool {
@@ -67,11 +72,11 @@ func ConnectInternal() error {
 	// CurrentNode.MaxPool = DEFAULT_MAX_POOL
 
 	el := metrics.StartTimeIt("Loading environment...", 0)
-	utils.ReloadEnvEach(ENV_FILES)
+	utils.ReloadEnvEach(".env.dev", SURESQL_ENV_FILE)
 	metrics.StopTimeItPrint(el, "Done")
 
-	el = metrics.StartTimeIt("Loading config... ", 0)
-	conf := LoadConfigFromEnvironment()
+	el = metrics.StartTimeIt("Loading DBMS config... ", 0)
+	conf := LoadDBMSConfigFromEnvironment()
 	metrics.StopTimeItPrint(el, "Done")
 
 	// conf.PrintDebug(false)
@@ -87,8 +92,8 @@ func ConnectInternal() error {
 	// Preparing the DBPool connection that is called by the Handler /connect
 	metrics.StopTimeItPrint(el, "Done")
 
-	el = metrics.StartTimeIt("Reading settings table...", 0)
-	err = LoadSettings(&CurrentNode.InternalConnection)
+	el = metrics.StartTimeIt("Reading config table...", 0)
+	err = LoadConfigFromDB(&CurrentNode.InternalConnection)
 	if err != nil {
 		simplelog.LogErrorStr("init", err, "cannot load settings from DB, it is not yet initialized")
 		return err
@@ -104,7 +109,7 @@ func ConnectInternal() error {
 	} else {
 		// if no error that means DB is initalized, if it's already initialized it will return err=ErrDBInitializedAlready
 		// call the LoadSEttings again
-		err := LoadSettings(&CurrentNode.InternalConnection)
+		err := LoadConfigFromDB(&CurrentNode.InternalConnection)
 		if err != nil {
 			simplelog.LogErrorStr("connect internal", err, "cannot load settings from DB, it is not yet initialized")
 			return err
@@ -113,10 +118,10 @@ func ConnectInternal() error {
 	metrics.StopTimeItPrint(el, msg)
 
 	// Make the configMaps before reading from DB
-	CurrentNode.DBConfigs = make(ConfigCategory)
+	CurrentNode.Settings = make(Settings)
 
-	el = metrics.StartTimeIt("Reading config table...", 0)
-	err = LoadConfigFromDB(&CurrentNode.InternalConnection)
+	el = metrics.StartTimeIt("Reading settings table...", 0)
+	err = LoadSettingsFromDB(&CurrentNode.InternalConnection)
 	if err != nil {
 		simplelog.LogErrorStr("init", err, "cannot load configs from DB or not yet initialized")
 		return err
@@ -134,7 +139,7 @@ func ConnectInternal() error {
 	// Setup the DB Connection TTLMap, use RefreshTokenExp (longer) so when refreshed, the DBConnection is still there.
 	el = metrics.StartTimeIt("Applying config table and settings to Node status...", 0)
 	CurrentNode.ApplyAllConfig()
-	CurrentNode.DBConnections = medattlmap.NewTTLMap(CurrentNode.RefreshExp, CurrentNode.TTLTicker)
+	CurrentNode.DBConnections = medattlmap.NewTTLMap(CurrentNode.Config.RefreshExp, CurrentNode.Config.TTLTicker)
 	CurrentNode.GetStatusFromSettings(conf)
 	metrics.StopTimeItPrint(el, "Done")
 
@@ -151,29 +156,29 @@ func ConnectInternal() error {
 
 // This is the status for SureSQL Nodes (not the internal DBMS nodes)
 // Status is pretty much taken from Settings, but this is used for response
-func (n *SureSQLNode) GetStatusFromSettings(conf SureSQLConfig) {
+func (n *SureSQLNode) GetStatusFromSettings(conf SureSQLDBMSConfig) {
 	// CurrentNode.Status.StatusStruct.SettingsTable = CurrentNode.Settings
 	if n.Status.Peers == nil {
 		n.Status.Peers = make(map[int]orm.StatusStruct)
 	}
 	n.Status.Version = APP_VERSION
 	// if NodeNumber == 1 then it is Leader
-	n.Status.IsLeader = n.Settings.NodeNumber == LEADER_NODE_NUMBER
+	n.Status.IsLeader = n.Config.NodeNumber == LEADER_NODE_NUMBER
 	n.Status.URL = "http://"
-	if n.Settings.SSL {
+	if n.Config.SSL {
 		n.Status.URL = "https://"
 	}
-	n.Status.URL += n.Settings.Host
-	if n.Settings.Port != "" {
-		CurrentNode.Status.URL += ":" + CurrentNode.Settings.Port
+	n.Status.URL += n.Config.Host
+	if n.Config.Port != "" {
+		CurrentNode.Status.URL += ":" + CurrentNode.Config.Port
 	}
 	n.Status.StartTime = ServerStartTime
 	n.Status.Uptime = time.Since(ServerStartTime) // this is refreshed when Status handler is called
-	n.Status.Mode = n.Settings.Mode
-	n.Status.Nodes = n.Settings.Nodes
-	n.Status.NodeNumber = n.Settings.NodeNumber
+	n.Status.Mode = n.Config.Mode
+	n.Status.Nodes = n.Config.Nodes
+	n.Status.NodeNumber = n.Config.NodeNumber
 	n.Status.NodeID = fmt.Sprintf("%d", n.Status.NodeNumber)
-	n.Status.DBMS = n.Settings.DBMS
+	n.Status.DBMS = n.Config.DBMS
 	// These are filled during getStatusInternal
 	// LastBackup
 	// Leader
@@ -184,46 +189,46 @@ func (n *SureSQLNode) GetStatusFromSettings(conf SureSQLConfig) {
 
 // Apply config if they are changed from DB, only few that can be changed and effected at run-time
 // NOTE: this is hard-coded
-func (n *SureSQLNode) ApplyConfig(category, key string) bool {
+func (n *SureSQLNode) ApplySettings(category, key string) bool {
 	res := false
-	tmp, ok := n.DBConfigs.ConfigExist(category, key)
+	tmp, ok := n.Settings.SettingExist(category, key)
 
 	switch category {
-	case CONFIG_TOKEN_CATEGORY:
+	case SETTING_CATEGORY_TOKEN:
 		switch key {
-		case CONFIG_TOKEN_EXP_KEY:
+		case SETTING_KEY_TOKEN_EXP:
 			if !ok {
-				n.TokenExp = DEFAULT_TOKEN_EXPIRES_MINUTES
+				n.Config.TokenExp = DEFAULT_TOKEN_EXPIRES_MINUTES
 			} else {
-				n.TokenExp = time.Duration(tmp.IntValue) * time.Minute
+				n.Config.TokenExp = time.Duration(tmp.IntValue) * time.Minute
 			}
 			res = true
-		case CONFIG_REFRESH_EXP_KEY:
+		case SETTING_KEY_REFRESH_EXP:
 			if !ok {
-				n.RefreshExp = DEFAULT_REFRESH_EXPIRES_MINUTES
+				n.Config.RefreshExp = DEFAULT_REFRESH_EXPIRES_MINUTES
 			} else {
-				n.RefreshExp = time.Duration(tmp.IntValue) * time.Minute
+				n.Config.RefreshExp = time.Duration(tmp.IntValue) * time.Minute
 			}
 			res = true
-		case CONFIG_TOKEN_TTL_KEY:
+		case SETTING_KEY_TOKEN_TTL:
 			if !ok {
-				n.TTLTicker = DEFAULT_TTL_TICKER_MINUTES
+				n.Config.TTLTicker = DEFAULT_TTL_TICKER_MINUTES
 			} else {
-				n.TTLTicker = time.Duration(tmp.IntValue) * time.Minute
+				n.Config.TTLTicker = time.Duration(tmp.IntValue) * time.Minute
 			}
 			res = true
 		default:
 		}
-	case CONFIG_CONNECTION_CATEGORY:
+	case SETTING_CATEGORY_CONNECTION:
 		switch key {
-		case CONFIG_ENABLE_POOL_KEY:
+		case SETTING_KEY_ENABLE_POOL:
 			if ok {
 				n.IsPoolEnabled = tmp.IntValue == 1
 				res = true
 			} else {
 				n.IsPoolEnabled = DEFAULT_POOL_ENABLED
 			}
-		case CONFIG_MAX_POOL_KEY:
+		case SETTING_KEY_MAX_POOL:
 			if ok {
 				n.MaxPool = tmp.IntValue
 				if n.MaxPool == 0 && n.IsPoolEnabled {
@@ -235,13 +240,13 @@ func (n *SureSQLNode) ApplyConfig(category, key string) bool {
 			}
 		default:
 		}
-	case CONFIG_NODES_CATEGORY:
-		nodes := len(n.DBConfigs[CONFIG_NODES_CATEGORY])
-		for _, c := range n.DBConfigs[CONFIG_NODES_CATEGORY] {
+	case SETTING_CATEGORY_NODES:
+		nodes := len(n.Settings[SETTING_CATEGORY_NODES])
+		for _, c := range n.Settings[SETTING_CATEGORY_NODES] {
 			// value string: node_number;hostname;ip;mode
 			// -- node_number|hostname|ip|mode   and the CONFIG_NODE_DELIMITER in this case is "|"
 
-			parsed := strings.Split(c.TextValue, CONFIG_NODE_DELIMITER)
+			parsed := strings.Split(c.TextValue, SETTING_NODE_DELIMITER)
 			stat := orm.StatusStruct{
 				// overwrite the actual DBMS node_ID to use SureSQL NodeNumber as the string-type ID
 				NodeID:     parsed[0],
@@ -253,11 +258,11 @@ func (n *SureSQLNode) ApplyConfig(category, key string) bool {
 			}
 			// Because the config contains the whole cluster information, including the master/this current node
 			// If not the same NodeNumber then it's the peers.
-			if n.Settings.NodeNumber != stat.NodeNumber {
+			if n.Config.NodeNumber != stat.NodeNumber {
 				n.Status.Peers[stat.NodeNumber] = stat
 			}
 		}
-	case CONFIG_EMPTY_CATEGORY:
+	case SETTING_CATEGORY_EMPTY:
 	default:
 	}
 	return res
@@ -269,12 +274,12 @@ func (n *SureSQLNode) ApplyAllConfig() bool {
 		n.Status.Peers = make(map[int]orm.StatusStruct)
 	}
 	res := true
-	res = n.ApplyConfig(CONFIG_CONNECTION_CATEGORY, CONFIG_MAX_POOL_KEY)
-	res = n.ApplyConfig(CONFIG_CONNECTION_CATEGORY, CONFIG_ENABLE_POOL_KEY) || res
-	res = n.ApplyConfig(CONFIG_TOKEN_CATEGORY, CONFIG_TOKEN_EXP_KEY) || res
-	res = n.ApplyConfig(CONFIG_TOKEN_CATEGORY, CONFIG_REFRESH_EXP_KEY) || res
-	res = n.ApplyConfig(CONFIG_TOKEN_CATEGORY, CONFIG_TOKEN_TTL_KEY) || res
-	res = n.ApplyConfig(CONFIG_NODES_CATEGORY, "no need key") || res
+	res = n.ApplySettings(SETTING_CATEGORY_CONNECTION, SETTING_KEY_MAX_POOL)
+	res = n.ApplySettings(SETTING_CATEGORY_CONNECTION, SETTING_KEY_ENABLE_POOL) || res
+	res = n.ApplySettings(SETTING_CATEGORY_TOKEN, SETTING_KEY_TOKEN_EXP) || res
+	res = n.ApplySettings(SETTING_CATEGORY_TOKEN, SETTING_KEY_REFRESH_EXP) || res
+	res = n.ApplySettings(SETTING_CATEGORY_TOKEN, SETTING_KEY_TOKEN_TTL) || res
+	res = n.ApplySettings(SETTING_CATEGORY_NODES, "no need key") || res
 	return res
 }
 
@@ -316,11 +321,11 @@ func (n SureSQLNode) PrintWelcomePretty() {
 
 	prot := "http://"
 	heading1 := APP_NAME + " " + APP_VERSION
-	heading2 := fmt.Sprintf("%s (%d) - Node %d/%d", n.Settings.Label, n.Settings.NodeID, n.Settings.NodeNumber, n.Settings.Nodes)
-	if n.Settings.SSL {
+	heading2 := fmt.Sprintf("%s (%d) - Node %d/%d", n.Config.Label, n.Config.NodeID, n.Config.NodeNumber, n.Config.Nodes)
+	if n.Config.SSL {
 		prot = "https://"
 	}
-	heading3 := fmt.Sprintf("%s%s:%s", prot, n.Settings.Host, n.Settings.Port)
+	heading3 := fmt.Sprintf("%s%s:%s", prot, n.Config.Host, n.Config.Port)
 	appName := []string{heading1, heading2, heading3}
 	headingColors := []print.Color{
 		print.ColorCyan,
@@ -341,11 +346,11 @@ func (n SureSQLNode) PrintWelcomePretty() {
 		consistency = "default"
 	}
 	apikey := false
-	if n.InternalConfig.APIKey != "" {
+	if n.Config.APIKey != "" {
 		apikey = true
 	}
 	clientid := false
-	if n.InternalConfig.ClientID != "" {
+	if n.Config.ClientID != "" {
 		clientid = true
 	}
 
@@ -372,13 +377,13 @@ func (n SureSQLNode) PrintWelcomePretty() {
 
 	// Content defined in order
 	appSettings := []print.KeyValue{
-		print.Content(false, false, "Mode", n.Settings.Mode),
-		print.Content(false, false, "Split-write", n.Settings.IsSplitWrite),
-		print.Content(false, false, "IP", n.IP),
-		print.Content(false, false, "DB init", n.Settings.IsInitDone),
+		print.Content(false, false, "Mode", n.Config.Mode),
+		print.Content(false, false, "Split-write", n.Config.IsSplitWrite),
+		print.Content(false, false, "IP", n.Config.IP),
+		print.Content(false, false, "DB init", n.Config.IsInitDone),
 		print.Content(false, false, "Pool", n.IsPoolEnabled),
 		print.Content(false, false, "Max pools", n.MaxPool),
-		print.Content(false, false, "Encryption", n.Settings.EncryptionMethod),
+		print.Content(false, false, "Encryption", n.Config.EncryptionMethod),
 		print.Content(false, false, "Hard token", hardtoken),
 		print.Content(false, false, "Hard JWE", hardjwe),
 		print.Content(false, false, "API key", apikey),

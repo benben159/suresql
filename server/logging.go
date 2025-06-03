@@ -35,7 +35,7 @@ func (l AccessLogTable) TableName() string {
 
 // Save the logentry to log table
 func (l *AccessLogTable) DBLogging(db *suresql.SureSQLDB) error {
-	l.NodeNumber = suresql.CurrentNode.Settings.NodeNumber
+	l.NodeNumber = suresql.CurrentNode.Config.NodeNumber
 	l.Occurred = time.Now().UTC()
 	// l.Username = db.Config.Username
 	// return db.InsertOneTableStruct(l)

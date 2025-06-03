@@ -29,7 +29,7 @@
 
 -- Init DB tables for each node, settings of current node
 -- DROP TABLE _settings;
-CREATE TABLE IF NOT EXISTS _settings (
+CREATE TABLE IF NOT EXISTS _configs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   label TEXT, -- the name of the project
   ip TEXT,
@@ -59,11 +59,11 @@ CREATE TABLE IF NOT EXISTS _settings (
 -- example:
 --   config_key: TOKEN_EXP_MINUTES
 --   int_value: 60
-CREATE TABLE IF NOT EXISTS _configs (
+CREATE TABLE IF NOT EXISTS _settings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   category TEXT, -- grouping of configs
   data_type TEXT,  -- int/float/string/bool (which is int)
-  config_key TEXT, -- the key in Key-Value map
+  setting_key TEXT, -- the key in Key-Value map
   text_value TEXT,
   float_value REAL,
   int_value INTEGER

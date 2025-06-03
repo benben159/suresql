@@ -14,7 +14,7 @@ import (
 // So make sure the caller (front-end) check if the return is 0 rows then handle it as error or not.
 
 // HandleQuery processes data query requests
-func HandleQuery(ctx simplehttp.MedaContext) error {
+func HandleQuery(ctx simplehttp.Context) error {
 
 	// Get headers using the correct approach
 	state := NewHandlerTokenState(ctx, "/query/", "request")

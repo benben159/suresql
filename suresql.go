@@ -12,7 +12,7 @@ var (
 
 // Making connection to internal DB
 // This is where implementation selection happens, right now is only RQlite
-func NewDatabase(conf SureSQLConfig) (SureSQLDB, error) {
+func NewDatabase(conf SureSQLDBMSConfig) (SureSQLDB, error) {
 	// TODO: FUTURE: maybe reading from environment then call the appropriate "connect" method to the internal
 	// -             database. Currently is only RQLite, but maybe future can be postgres, mySQL etc.
 	// conf.GenerateGoRQLiteURL()
