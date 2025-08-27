@@ -103,7 +103,7 @@ func ConnectInternal() error {
 	metrics.StopTimeItPrint(el, "Done")
 
 	// Init DB is done after LoadSettings just in case if settings already initialized??
-	if !db_is_initialzed {
+	if !db_is_initialized {
 		el = metrics.StartTimeIt("Initializing DB tables...", -1)
 		err = InitDB(false)
 		if err != nil {
