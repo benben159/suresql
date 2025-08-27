@@ -106,9 +106,7 @@ func ConnectInternal() error {
 	if !db_is_initialized {
 		el = metrics.StartTimeIt("Initializing DB tables...", -1)
 		err = InitDB(false)
-		if err != nil {
-			msg = err.Error()
-		} else {
+		if err == nil {
 			// if no error that means DB is initalized, if it's already initialized it will return err=ErrDBInitializedAlready
 			// call the LoadSEttings again
 			err := LoadConfigFromDB(&CurrentNode.InternalConnection)
@@ -116,6 +114,8 @@ func ConnectInternal() error {
 				simplelog.LogErrorStr("connect internal", err, "cannot load settings from DB, it is not yet initialized")
 				return err
 			}
+		} else {
+			metrics.StopTimeItPrint(el, err.Error())
 		}
 		metrics.StopTimeItPrint(el, "Done")
 	}
